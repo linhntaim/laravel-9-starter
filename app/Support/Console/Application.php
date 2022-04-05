@@ -101,7 +101,7 @@ class Application extends BaseApplication
         return $this->runningCommands[0] ?? null;
     }
 
-    public function currentRunningCommand(): ?RunningCommand
+    public function latestRunningCommand(): ?RunningCommand
     {
         return $this->runningCommands[count($this->runningCommands) - 1] ?? null;
     }
@@ -189,7 +189,7 @@ class Application extends BaseApplication
                             sprintf(
                                 '<comment>#%s</comment> %s',
                                 $order->padLeft($padLength, '0'),
-                                json_encode($trace)
+                                json_encode_readable($trace)
                             ),
                             OutputInterface::VERBOSITY_QUIET
                         );

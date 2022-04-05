@@ -13,7 +13,7 @@ class BagString
         if (!is_countable($bag) || !is_iterable($bag)) {
             return null;
         }
-        if (count($bag) <= 0) {
+        if (!count($bag)) {
             return null;
         }
         return new static($bag);
@@ -52,7 +52,7 @@ class BagString
 
     protected function stringifyItem(string $name, $item): string|array
     {
-        return sprintf('%s %s', $this->stringifyName($name), is_scalar($item) ? $item : json_encode($item));
+        return sprintf('%s %s', $this->stringifyName($name), is_scalar($item) ? $item : json_encode_readable($item));
     }
 
     protected function stringifyName(string $name): string
