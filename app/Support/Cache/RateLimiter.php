@@ -11,12 +11,12 @@ class RateLimiter extends BaseRateLimiter
     /**
      * @throws InvalidArgumentException
      */
-    protected function locked($key): bool
+    protected function locked(string $key): bool
     {
         return $this->cache->has($key . ':lock_timer');
     }
 
-    protected function lock($key, $lockSeconds = 3600): static
+    protected function lock(string $key, int $lockSeconds = 3600): static
     {
         $this->cache->add(
             $this->cleanRateLimiterKey($key) . ':lock_timer', $this->availableAt($lockSeconds), $lockSeconds
@@ -27,7 +27,7 @@ class RateLimiter extends BaseRateLimiter
     /**
      * @throws InvalidArgumentException
      */
-    public function lockAvailableIn($key): int
+    public function lockAvailableIn(string $key): int
     {
         return max(
             $this->availableIn($key),
@@ -35,39 +35,67 @@ class RateLimiter extends BaseRateLimiter
         );
     }
 
-    public function lockClear($key): void
+    public function lockClear(string $key): void
     {
         $this->clear($key);
         $this->cache->forget($this->cleanRateLimiterKey($key) . ':lock_timer');
     }
 
-    public function attemptWithDelay($key, $maxAttempts, Closure $callback, $decaySeconds = 60): bool
+    protected function safeExecuteMaxAttempts(int $maxAttempts, Closure $originCallback, Closure $callback): bool
     {
-        if ($this->tooManyAttempts($key, $maxAttempts)) {
-            echo 'sleep: ' . $this->availableIn($key) . PHP_EOL;
-            sleep($this->availableIn($key));
-        }
+        return match (true) {
+            $maxAttempts <= 0 => $originCallback() ?: true,
+            default => $callback(),
+        };
+    }
 
-        return take($callback() ?: true, function () use ($key, $decaySeconds) {
-            $this->hit($key, $decaySeconds);
-        });
+    public function attempt($key, $maxAttempts, Closure $callback, $decaySeconds = 60): bool
+    {
+        return $this->safeExecuteMaxAttempts(
+            $maxAttempts,
+            $callback,
+            fn() => parent::attempt($key, $maxAttempts, $callback, $decaySeconds)
+        );
+    }
+
+    public function attemptWithDelay(string $key, int $maxAttempts, Closure $callback, int $decaySeconds = 60): bool
+    {
+        return $this->safeExecuteMaxAttempts(
+            $maxAttempts,
+            $callback,
+            function () use ($key, $maxAttempts, $callback, $decaySeconds) {
+                if ($this->tooManyAttempts($key, $maxAttempts)) {
+                    sleep($this->availableIn($key));
+                }
+
+                return take($callback() ?: true, function () use ($key, $decaySeconds) {
+                    $this->hit($key, $decaySeconds);
+                });
+            }
+        );
     }
 
     /**
      * @throws InvalidArgumentException
      */
-    public function attemptWithLock($key, $maxAttempts, Closure $callback, $decaySeconds = 60, $lockSeconds = 3600): bool
+    public function attemptWithLock(string $key, int $maxAttempts, Closure $callback, int $decaySeconds = 60, int $lockSeconds = 3600): bool
     {
-        if ($this->locked($key)) {
-            return false;
-        }
-        if ($this->tooManyAttempts($key, $maxAttempts)) {
-            $this->lock($key, $lockSeconds);
-            return false;
-        }
+        return $this->safeExecuteMaxAttempts(
+            $maxAttempts,
+            $callback,
+            function () use ($key, $maxAttempts, $callback, $decaySeconds, $lockSeconds) {
+                if ($this->locked($key)) {
+                    return false;
+                }
+                if ($this->tooManyAttempts($key, $maxAttempts)) {
+                    $this->lock($key, $lockSeconds);
+                    return false;
+                }
 
-        return take($callback() ?: true, function () use ($key, $decaySeconds) {
-            $this->hit($key, $decaySeconds);
-        });
+                return take($callback() ?: true, function () use ($key, $decaySeconds) {
+                    $this->hit($key, $decaySeconds);
+                });
+            }
+        );
     }
 }
